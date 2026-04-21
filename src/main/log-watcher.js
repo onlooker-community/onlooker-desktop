@@ -72,17 +72,28 @@ function normalise(event, inferredPlugin) {
            : event.decision === "allow" ? "pass"
            : "info";
   }
+  // Oracle three-state calibration → canonical status
+  if (!status && event.state) {
+    status = event.state === "confident"             ? "pass"
+           : event.state === "uncertain_recoverable" ? "warn"
+           : event.state === "uncertain_high_stakes" ? "block"
+           : "info";
+  }
   status = status ?? "info";
 
   // Type: prefer type, fall back to trigger or event field
   const type = event.type ?? event.trigger ?? event.event ?? "unknown";
 
-  // Label: prefer label, otherwise build from event/trigger + tool
+  // Label: prefer label, otherwise build from event/trigger + tool.
+  // For oracle events, append the calibration state so it's scannable at a glance.
+  const stateHint = event.state ? ` · ${event.state.replace(/_/g, " ")}` : "";
   const label = event.label
-    ?? (event.tool ? `${type}: ${event.tool}` : type);
+    ?? (event.tool ? `${type}: ${event.tool}${stateHint}` : `${type}${stateHint}`);
 
-  // Detail: prefer detail, fall back to pattern_matched or input_summary
+  // Detail: prefer detail, fall back to reason (oracle flagged assumptions /
+  // blocking questions), then pattern_matched or input_summary
   const detail = event.detail
+    ?? event.reason
     ?? event.pattern_matched
     ?? event.input_summary
     ?? null;
