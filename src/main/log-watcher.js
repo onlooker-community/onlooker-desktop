@@ -76,6 +76,11 @@ function normalise(event, inferredPlugin) {
 
   // Status: map decision/status values to canonical set
   let status = event.status;
+  // tool_outcome events: map result field to status
+  const p = event.payload;
+  if (!status && p?.result) {
+    status = p.result === "failure" ? "fail" : "pass";
+  }
   if (!status && event.decision) {
     status = event.decision === "block" ? "block"
            : event.decision === "allow" ? "pass"
@@ -93,19 +98,37 @@ function normalise(event, inferredPlugin) {
   // Type: prefer type, fall back to event_type (enriched envelope), trigger, or event field
   const type = event.type ?? event.event_type ?? event.trigger ?? event.event ?? "unknown";
 
-  // Label: prefer label, otherwise build from event/trigger + tool.
-  // For oracle events, append the calibration state so it's scannable at a glance.
-  const stateHint = event.state ? ` · ${event.state.replace(/_/g, " ")}` : "";
-  const label = event.label
-    ?? (event.tool ? `${type}: ${event.tool}${stateHint}` : `${type}${stateHint}`);
+  // Label: build human-readable label from event data.
+  // tool_outcome events get special treatment: "Tool: target" format.
+  let label = event.label;
+  if (!label && type === "tool_outcome" && p) {
+    const tool = p.tool ?? "unknown";
+    const target = p.target;
+    if (target) {
+      // Shorten file paths to basename for display
+      const short = target.length > 60 ? "…" + target.slice(-55) : target;
+      label = `${tool}: ${short}`;
+    } else {
+      label = tool;
+    }
+  }
+  if (!label) {
+    const stateHint = event.state ? ` · ${event.state.replace(/_/g, " ")}` : "";
+    label = event.tool ? `${type}: ${event.tool}${stateHint}` : `${type}${stateHint}`;
+  }
 
-  // Detail: prefer detail, fall back to reason (oracle flagged assumptions /
-  // blocking questions), then pattern_matched or input_summary
-  const detail = event.detail
-    ?? event.reason
-    ?? event.pattern_matched
-    ?? event.input_summary
-    ?? null;
+  // Detail: for tool_outcome, show output_summary or error.
+  // Otherwise fall back to standard fields.
+  let detail = event.detail;
+  if (!detail && type === "tool_outcome" && p) {
+    detail = p.error || p.output_summary || null;
+  }
+  if (!detail) {
+    detail = event.reason
+      ?? event.pattern_matched
+      ?? event.input_summary
+      ?? null;
+  }
 
   // Turn-level fields (enriched envelope, optional)
   const hook_type     = event.hook_type ?? null;

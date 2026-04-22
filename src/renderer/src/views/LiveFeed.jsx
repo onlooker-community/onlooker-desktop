@@ -75,8 +75,12 @@ function EventRow({ event, expanded, onToggle }) {
       </div>
 
       {event.detail && (
-        <div style={{ fontSize: 10, color: C.textMuted, fontFamily: "monospace",
-          marginTop: 2, marginLeft: 14, paddingLeft: 20 }}>
+        <div style={{
+          fontSize: 10, fontFamily: "monospace",
+          marginTop: 2, marginLeft: 14, paddingLeft: 20,
+          color: (event.status === "fail" || event.status === "block") ? C.red : C.textMuted,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>
           {event.detail}
         </div>
       )}

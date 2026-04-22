@@ -106,9 +106,21 @@ function MiniEvent({ event }) {
 function ToolCallGroup({ toolCall, defaultExpanded }) {
   const [expanded, setExpanded] = useState(defaultExpanded ?? false);
 
+  // Find the tool_outcome event in this group for summary display
+  const outcomeEvent = toolCall.events.find((e) => e.type === "tool_outcome");
+  const outcome = outcomeEvent?.meta;
+  const result = outcome?.result;
+  const target = outcome?.target;
+  const resultColor = result === "failure" ? C.red : result === "success" ? C.green : C.textMuted;
+
+  // Shorten target for inline display
+  const shortTarget = target
+    ? (target.length > 50 ? "…" + target.slice(-45) : target)
+    : null;
+
   return (
     <div style={{
-      marginLeft: 12, borderLeft: `1px solid ${C.border}`,
+      marginLeft: 12, borderLeft: `1px solid ${result === "failure" ? C.red + "66" : C.border}`,
       paddingLeft: 10, marginBottom: 4,
     }}>
       <div
@@ -121,16 +133,61 @@ function ToolCallGroup({ toolCall, defaultExpanded }) {
         <span style={{ fontSize: 9, color: C.textMuted }}>
           {expanded ? "▼" : "▶"}
         </span>
+
+        {/* Result indicator */}
+        {result && (
+          <div style={{
+            width: 5, height: 5, borderRadius: "50%", flexShrink: 0,
+            background: resultColor, boxShadow: `0 0 3px ${resultColor}66`,
+          }} />
+        )}
+
         <span style={{
           fontSize: 10, fontWeight: 600, color: C.cyan,
           fontFamily: "'JetBrains Mono', monospace",
         }}>
           {toolCall.toolName}
         </span>
-        <span style={{ fontSize: 9, color: C.textMuted }}>
-          {toolCall.events.length} event{toolCall.events.length !== 1 ? "s" : ""}
-        </span>
+
+        {/* Target (file path, command, etc.) */}
+        {shortTarget && (
+          <span style={{
+            fontSize: 9, color: C.textSecondary, flex: 1, minWidth: 0,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            fontFamily: "monospace",
+          }}>
+            {shortTarget}
+          </span>
+        )}
+
+        {!shortTarget && (
+          <span style={{ fontSize: 9, color: C.textMuted }}>
+            {toolCall.events.length} event{toolCall.events.length !== 1 ? "s" : ""}
+          </span>
+        )}
       </div>
+
+      {/* Output summary (visible even when collapsed, if we have one) */}
+      {!expanded && outcome?.output_summary && (
+        <div style={{
+          fontSize: 9, color: C.textMuted, fontFamily: "monospace",
+          paddingLeft: 16, marginTop: 1, marginBottom: 2,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>
+          {outcome.output_summary}
+        </div>
+      )}
+
+      {/* Error message for failures (always visible) */}
+      {!expanded && outcome?.error && (
+        <div style={{
+          fontSize: 9, color: C.red, fontFamily: "monospace",
+          paddingLeft: 16, marginTop: 1, marginBottom: 2,
+        }}>
+          {outcome.error.length > 120 ? outcome.error.slice(0, 120) + "…" : outcome.error}
+        </div>
+      )}
+
       {expanded && (
         <div style={{ paddingLeft: 4 }}>
           {toolCall.events.map((e, i) => (

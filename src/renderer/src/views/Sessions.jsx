@@ -203,8 +203,11 @@ function DetailEventRow({ event }) {
         </span>
       </div>
       {event.detail && (
-        <div style={{ fontSize: 10, color: C.textMuted, fontFamily: "monospace",
-          marginTop: 2, paddingLeft: 22 }}>{event.detail}</div>
+        <div style={{
+          fontSize: 10, fontFamily: "monospace", marginTop: 2, paddingLeft: 22,
+          color: (event.status === "fail" || event.status === "block") ? C.red : C.textMuted,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>{event.detail}</div>
       )}
       {expanded && hasMeta && (
         <div style={{ marginTop: 6, marginLeft: 22, padding: "6px 8px",
