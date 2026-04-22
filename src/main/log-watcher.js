@@ -152,10 +152,11 @@ function normalise(event, inferredPlugin) {
       context_compact: "Context compacted",
       skill_invoked:   p?.skill ? `Skill: ${p.skill}` : "Skill invoked",
       file_read:       p?.file ? `Read: ${p.file}` : "File read",
-      pre_compact:     "Pre-compact snapshot",
-      "state-triggers":"State trigger",
-      "task-gate":     "Task gate",
-      "context-threshold": "Context threshold",
+      pre_compact:          "Pre-compact snapshot",
+      "state-triggers":     "State trigger",
+      "task-gate":          "Task gate",
+      "context-threshold":  "Context threshold",
+      instruction_health:   "Instruction health",
     };
     label = EVENT_LABELS[type] ?? null;
   }
@@ -302,6 +303,47 @@ async function queryLogs(logDir, { from, to, plugins, limit } = {}) {
   return limit ? sorted.slice(-limit) : sorted;
 }
 
+// Read Cartographer instruction health from state.json + latest audit file.
+// Returns null when no audit has run yet (safe for first-launch).
+//
+// Return shape:
+//   { last_audit_at, cwd, health_score, issue_count: {high,medium,low},
+//     issues?: [{id,category,severity,description,files,evidence,suggestion}],
+//     summary?: string }
+function readInstructionHealth(logDir) {
+  const resolved  = resolveDir(logDir);
+  const stateFile = path.join(resolved, "cartographer", "state.json");
+
+  if (!fs.existsSync(stateFile)) return null;
+
+  let state;
+  try {
+    state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+  } catch {
+    return null;
+  }
+
+  const result = {
+    last_audit_at: state.last_audit_at ?? null,
+    cwd:           state.cwd           ?? null,
+    health_score:  typeof state.health_score === "number" ? state.health_score : null,
+    issue_count:   state.issue_count   ?? { high: 0, medium: 0, low: 0 },
+  };
+
+  // Enrich with full issue list from the referenced audit file
+  const auditFile = state.audit_file ?? null;
+  if (auditFile && fs.existsSync(auditFile)) {
+    try {
+      const audit = JSON.parse(fs.readFileSync(auditFile, "utf8"));
+      result.issues           = audit.issues           ?? [];
+      result.summary          = audit.summary          ?? null;
+      result.instruction_files = audit.instruction_files ?? [];
+    } catch { /* state.json is still valid without the audit detail */ }
+  }
+
+  return result;
+}
+
 // Query all **/costs.jsonl files — these are excluded from the event stream
 // because they're internal tracking files, but the Metrics view reads them
 // directly to surface cost data as a first-class metric.
@@ -395,9 +437,10 @@ export function registerLogHandlers(ipcMain, mainWindow, store) {
     });
 
     watcher.on("add", (filePath) => {
-      // New file — set cursor at end so we only tail future appends
-      const stat = fs.statSync(filePath, { throwIfNoEntry: false });
-      if (stat) cursors.set(filePath, stat.size);
+      // New file — read its initial content immediately (cursor starts at 0).
+      // Cartographer and other agents write a file once and never append to it,
+      // so setting the cursor to EOF here would permanently miss the content.
+      if (!isExcludedFile(filePath)) tailNewLines(filePath, dir, forward);
     });
 
     watchers.set(dir, watcher);
@@ -417,6 +460,10 @@ export function registerLogHandlers(ipcMain, mainWindow, store) {
 
   ipcMain.handle(IPC.COSTS_QUERY, (_e, opts) => {
     return queryCosts(store.get("logDir"), opts ?? {});
+  });
+
+  ipcMain.handle(IPC.HEALTH_QUERY, () => {
+    return readInstructionHealth(store.get("logDir"));
   });
 }
 

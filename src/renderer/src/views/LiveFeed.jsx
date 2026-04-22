@@ -141,6 +141,7 @@ export default function LiveFeed({ events, active }) {
   const [expandedIndex,  setExpandedIndex]   = useState(null);
   const [displayEvents,  setDisplayEvents]   = useState([]);
   const endRef    = useRef(null);
+  const scrollRef = useRef(null);
   const pauseRef  = useRef(false);
 
   // Keep a stable display list when paused
@@ -297,40 +298,80 @@ export default function LiveFeed({ events, active }) {
             <div style={{ fontSize: 11 }}>{displayEvents.length} events hidden by filters</div>
           </div>
         )
-        : viewMode === "turns"
-        ? (
-          <div style={{ flex: 1, overflowY: "auto", padding: "8px 12px" }}>
-            {turns.map((t) => (
-              <TurnCard
-                key={`turn-${t.turn}-${t.start}`}
-                turn={t}
-                defaultExpanded={t.inProgress}
-              />
-            ))}
-            {turns.length === 0 && (
-              <div style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 12 }}>
-                No turn structure detected — events may lack turn data
-              </div>
-            )}
-            <div ref={endRef} />
-          </div>
-        )
         : (
-          <div style={{ flex: 1, overflowY: "auto", paddingBottom: 8 }}>
-            {rows.map((row, i) =>
-              row.type === "divider"
-                ? <SessionDivider key={row.key} sessionId={row.sessionId} ts={row.ts} />
-                : <EventRow
-                    key={row.key}
-                    event={row.event}
-                    expanded={expandedIndex === i}
-                    onToggle={() => setExpandedIndex(expandedIndex === i ? null : i)}
-                  />
-            )}
-            <div ref={endRef} />
+          <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+            {viewMode === "turns"
+              ? (
+                <div ref={scrollRef} style={{ position: "absolute", inset: 0, overflowY: "auto", padding: "8px 12px" }}>
+                  {turns.map((t) => (
+                    <TurnCard
+                      key={`turn-${t.turn}-${t.start}`}
+                      turn={t}
+                      defaultExpanded={t.inProgress}
+                    />
+                  ))}
+                  {turns.length === 0 && (
+                    <div style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 12 }}>
+                      No turn structure detected — events may lack turn data
+                    </div>
+                  )}
+                  <div ref={endRef} />
+                </div>
+              )
+              : (
+                <div ref={scrollRef} style={{ position: "absolute", inset: 0, overflowY: "auto", paddingBottom: 8 }}>
+                  {rows.map((row, i) =>
+                    row.type === "divider"
+                      ? <SessionDivider key={row.key} sessionId={row.sessionId} ts={row.ts} />
+                      : <EventRow
+                          key={row.key}
+                          event={row.event}
+                          expanded={expandedIndex === i}
+                          onToggle={() => setExpandedIndex(expandedIndex === i ? null : i)}
+                        />
+                  )}
+                  <div ref={endRef} />
+                </div>
+              )
+            }
+            <ScrollJumpButtons scrollRef={scrollRef} />
           </div>
         )
       }
+    </div>
+  );
+}
+
+function ScrollJumpButtons({ scrollRef }) {
+  return (
+    <div style={{
+      position: "absolute", bottom: 14, right: 14, zIndex: 10,
+      display: "flex", flexDirection: "column", gap: 3,
+      pointerEvents: "none", // let children handle clicks
+    }}>
+      {[["↑", 0, "Jump to top"], ["↓", null, "Jump to bottom"]].map(([arrow, top, title]) => (
+        <button
+          key={title}
+          title={title}
+          onClick={() => scrollRef.current?.scrollTo({
+            top: top ?? scrollRef.current.scrollHeight,
+            behavior: "smooth",
+          })}
+          style={{
+            width: 24, height: 24, pointerEvents: "auto",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            borderRadius: 5, border: `1px solid ${C.border}`,
+            background: `${C.bg2}e8`,
+            color: C.textMuted, fontSize: 11,
+            cursor: "pointer",
+            transition: "color 0.15s, border-color 0.15s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = C.textPrimary; e.currentTarget.style.borderColor = C.borderAccent; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = C.textMuted; e.currentTarget.style.borderColor = C.border; }}
+        >
+          {arrow}
+        </button>
+      ))}
     </div>
   );
 }

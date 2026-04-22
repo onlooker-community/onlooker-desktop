@@ -22,6 +22,7 @@ const IPC = {
   LOGS_EVENT:        "logs:event",
   LOGS_QUERY:        "logs:query",
   COSTS_QUERY:       "costs:query",
+  HEALTH_QUERY:      "health:query",
   REVIEW_REQUEST:    "review:request",
   REVIEW_READY:      "review:ready",
   SETTINGS_GET:      "settings:get",
@@ -74,6 +75,10 @@ contextBridge.exposeInMainWorld("onlooker", {
 
   costs: {
     query: (opts) => ipcRenderer.invoke(IPC.COSTS_QUERY, opts ?? {}),
+  },
+
+  health: {
+    query: () => ipcRenderer.invoke(IPC.HEALTH_QUERY),
   },
 
   review: {

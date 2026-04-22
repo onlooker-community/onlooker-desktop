@@ -22,6 +22,9 @@ export const IPC = {
   // Cost data (reads **/costs.jsonl directly — excluded from event stream)
   COSTS_QUERY:          "costs:query",
 
+  // Instruction health (reads Cartographer state.json + latest audit JSON)
+  HEALTH_QUERY:         "health:query",
+
   // Weekly review
   REVIEW_REQUEST:       "review:request",
   REVIEW_READY:         "review:ready",

@@ -51,6 +51,11 @@ contextBridge.exposeInMainWorld("onlooker", {
     query: (opts) => ipcRenderer.invoke(IPC.COSTS_QUERY, opts ?? {}),
   },
 
+  // ── Instruction health (Cartographer audit state) ─────────────────────────
+  health: {
+    query: () => ipcRenderer.invoke(IPC.HEALTH_QUERY),
+  },
+
   // ── Weekly review ─────────────────────────────────────────────────────────
   review: {
     request: (weekStart) => ipcRenderer.invoke(IPC.REVIEW_REQUEST, { weekStart }),

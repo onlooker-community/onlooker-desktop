@@ -273,6 +273,27 @@ function buildToolCalls(events) {
   return toolCalls;
 }
 
+// ── useInstructionHealth ─────────────────────────────────────────────────────
+// Reads Cartographer state.json + latest audit file.
+// Polls every 60s — audits are long-lived (24h TTL) so this is sufficient
+// to pick up a freshly completed audit without a dedicated file watcher.
+//
+// Returns null while loading or when no audit has run yet.
+export function useInstructionHealth() {
+  const [health, setHealth] = useState(null);
+
+  useEffect(() => {
+    const fetch = () => {
+      ipc.health.query().then(setHealth).catch(() => setHealth(null));
+    };
+    fetch();
+    const id = setInterval(fetch, 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  return health;
+}
+
 // ── useCostData ───────────────────────────────────────────────────────────────
 // Reads all **/costs.jsonl files via the dedicated COSTS_QUERY channel.
 // Returns an array of cost records — one per turn/stop, not per session.

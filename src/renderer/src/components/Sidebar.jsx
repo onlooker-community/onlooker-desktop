@@ -19,7 +19,7 @@ const NAV = [
   { id: "review",   icon: "☆",  label: "Weekly Review" },
 ];
 
-export default function Sidebar({ activeView, onNavigate, liveActive, blockCount, sessionCount, wardenBlocks }) {
+export default function Sidebar({ activeView, onNavigate, liveActive, blockCount, sessionCount, wardenBlocks, health }) {
   return (
     <div style={{
       width: 56,
@@ -69,12 +69,84 @@ export default function Sidebar({ activeView, onNavigate, liveActive, blockCount
       {/* Spacer */}
       <div style={{ flex: 1 }} />
 
+      {/* Instruction health indicator (Cartographer) */}
+      {health != null && <HealthIndicator health={health} />}
+
       {/* Settings at bottom */}
       <NavItem
         item={{ id: "settings", icon: "⚙", label: "Settings" }}
         active={activeView === "settings"}
         onNavigate={onNavigate}
       />
+    </div>
+  );
+}
+
+// Derives a traffic-light color from issue counts (not score).
+// high > 0 → red, medium > 0 → amber, else → green.
+function healthColor(issue_count) {
+  if (!issue_count) return C.textMuted;
+  if (issue_count.high   > 0) return "#f87171";
+  if (issue_count.medium > 0) return "#fbbf24";
+  return "#4ade80";
+}
+
+function HealthIndicator({ health }) {
+  const color   = healthColor(health.issue_count);
+  const high    = health.issue_count?.high   ?? 0;
+  const medium  = health.issue_count?.medium ?? 0;
+  const low     = health.issue_count?.low    ?? 0;
+  const total   = high + medium + low;
+  const score   = health.health_score != null
+    ? `${Math.round(health.health_score * 100)}%`
+    : "?";
+  const hasIssues = total > 0;
+
+  // Build a tooltip that fits the native title attribute
+  const issueLine = total === 0
+    ? "no issues found"
+    : [high > 0 && `${high} high`, medium > 0 && `${medium} medium`, low > 0 && `${low} low`]
+        .filter(Boolean).join(", ");
+  const ageLabel = health.last_audit_at
+    ? new Date(health.last_audit_at).toLocaleDateString("en-US",
+        { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    : null;
+  const tooltip = [
+    `Instruction health: ${score}`,
+    issueLine,
+    ageLabel && `audited ${ageLabel}`,
+  ].filter(Boolean).join("\n");
+
+  return (
+    <div
+      title={tooltip}
+      style={{
+        display:        "flex",
+        flexDirection:  "column",
+        alignItems:     "center",
+        gap:            3,
+        marginBottom:   10,
+        cursor:         "default",
+        opacity:        hasIssues ? 1 : 0.55,
+      }}
+    >
+      {/* Colored dot — glows when there are issues worth noticing */}
+      <div style={{
+        width:        8,
+        height:       8,
+        borderRadius: "50%",
+        background:   color,
+        boxShadow:    hasIssues ? `0 0 7px ${color}bb` : "none",
+        transition:   "background 0.3s, box-shadow 0.3s",
+      }} />
+      <span style={{
+        fontSize:      7,
+        fontFamily:    "monospace",
+        color,
+        letterSpacing: "0.03em",
+      }}>
+        CAR
+      </span>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 // Sessions view — browsable history of all past sessions.
 // Two-panel: session list on left, session detail on right.
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { PLUGIN_COLORS, PLUGIN_LABELS, STATUS_COLORS } from "../plugins.js";
 import { groupIntoTurns } from "../hooks/useOnlooker.js";
 import TurnCard from "../components/TurnCard.jsx";
@@ -220,7 +220,42 @@ function DetailEventRow({ event }) {
   );
 }
 
+function ScrollJumpButtons({ scrollRef }) {
+  return (
+    <div style={{
+      position: "absolute", bottom: 14, right: 14, zIndex: 10,
+      display: "flex", flexDirection: "column", gap: 3,
+      pointerEvents: "none",
+    }}>
+      {[["↑", 0, "Jump to top"], ["↓", null, "Jump to bottom"]].map(([arrow, top, title]) => (
+        <button
+          key={title}
+          title={title}
+          onClick={() => scrollRef.current?.scrollTo({
+            top: top ?? scrollRef.current.scrollHeight,
+            behavior: "smooth",
+          })}
+          style={{
+            width: 24, height: 24, pointerEvents: "auto",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            borderRadius: 5, border: `1px solid ${C.border}`,
+            background: `${C.bg2}e8`,
+            color: C.textMuted, fontSize: 11,
+            cursor: "pointer",
+            transition: "color 0.15s, border-color 0.15s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = C.textPrimary; e.currentTarget.style.borderColor = C.borderAccent; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = C.textMuted; e.currentTarget.style.borderColor = C.border; }}
+        >
+          {arrow}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function SessionDetail({ session }) {
+  const scrollRef = useRef(null);
   const [viewMode, setViewMode] = useState("turns"); // "turns" | "flat"
 
   const turns = useMemo(
@@ -240,7 +275,8 @@ function SessionDetail({ session }) {
   );
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
+    <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+    <div ref={scrollRef} style={{ position: "absolute", inset: 0, overflowY: "auto", padding: "20px 24px" }}>
       {/* Header */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 11, color: C.textMuted, fontFamily: "monospace",
@@ -316,6 +352,8 @@ function SessionDetail({ session }) {
           ))}
         </div>
       )}
+    </div>
+    <ScrollJumpButtons scrollRef={scrollRef} />
     </div>
   );
 }
