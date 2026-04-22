@@ -49,10 +49,15 @@ function inferPlugin(filePath, rootDir) {
 // Onlooker plugin schema observed in the wild.
 //
 // Canonical shape:
-//   { ts, plugin, type, label, detail, status, session, meta }
+//   { ts, plugin, type, label, detail, status, session, meta,
+//     hook_type?, turn?, tool_call_seq?, tool_name? }
 //
 // Actual plugin shape (e.g. warden, oracle):
 //   { timestamp, plugin, session_id, trigger|event, tool, decision, detail, ... }
+//
+// Enriched envelope shape (onlooker core ≥ v0.5):
+//   { timestamp, session_id, plugin, event_type, hook_type, turn, tool_call_seq,
+//     tool_name, payload }
 function normalise(event, inferredPlugin) {
   // Already in canonical form — has ts and label
   if (event.ts && event.label) return event;
@@ -81,8 +86,8 @@ function normalise(event, inferredPlugin) {
   }
   status = status ?? "info";
 
-  // Type: prefer type, fall back to trigger or event field
-  const type = event.type ?? event.trigger ?? event.event ?? "unknown";
+  // Type: prefer type, fall back to event_type (enriched envelope), trigger, or event field
+  const type = event.type ?? event.event_type ?? event.trigger ?? event.event ?? "unknown";
 
   // Label: prefer label, otherwise build from event/trigger + tool.
   // For oracle events, append the calibration state so it's scannable at a glance.
@@ -98,14 +103,23 @@ function normalise(event, inferredPlugin) {
     ?? event.input_summary
     ?? null;
 
-  // Meta: everything not in the canonical fields goes into meta
+  // Turn-level fields (enriched envelope, optional)
+  const hook_type     = event.hook_type ?? null;
+  const turn          = event.turn ?? null;
+  const tool_call_seq = event.tool_call_seq ?? null;
+  // tool_name: prefer top-level (enriched envelope), fall back to payload
+  const toolName      = event.tool_name ?? event.payload?.tool_name ?? null;
+
+  // Meta: everything not in the canonical/turn fields goes into meta
   const { ts: _ts, timestamp: _timestamp, plugin: _plugin,
           session: _session, session_id: _session_id,
           status: _status, decision: _decision,
-          type: _type, trigger: _trigger, event: _event,
+          type: _type, event_type: _et, trigger: _trigger, event: _event,
           label: _label, detail: _detail,
           pattern_matched: _pm, input_summary: _is,
           tool: _tool, tool_name: _tn,
+          hook_type: _ht, turn: _turn, tool_call_seq: _tcs,
+          payload: _payload,
           ...rest } = event;
 
   const meta = {
@@ -113,10 +127,19 @@ function normalise(event, inferredPlugin) {
     ...(event.tool_name ? { tool_name: event.tool_name } : {}),
     ...(event.decision  ? { decision: event.decision }   : {}),
     ...(event.pattern_matched ? { pattern_matched: event.pattern_matched } : {}),
+    // Merge payload fields into meta (enriched envelope nests plugin data here)
+    ...(event.payload && typeof event.payload === "object" ? event.payload : {}),
     ...rest,
   };
 
-  return { ts, plugin, type, label, detail, status, session, meta };
+  return {
+    ts, plugin, type, label, detail, status, session, meta,
+    // Turn-level fields — null when absent (legacy events)
+    ...(hook_type     != null ? { hook_type }     : {}),
+    ...(turn          != null ? { turn }          : {}),
+    ...(tool_call_seq != null ? { tool_call_seq } : {}),
+    ...(toolName      != null ? { tool_name: toolName } : {}),
+  };
 }
 
 // Read only the lines appended since the last cursor position.

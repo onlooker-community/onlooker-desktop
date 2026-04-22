@@ -1,8 +1,10 @@
 // Sessions view — browsable history of all past sessions.
 // Two-panel: session list on left, session detail on right.
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { PLUGIN_COLORS, PLUGIN_LABELS, STATUS_COLORS } from "../plugins.js";
+import { groupIntoTurns } from "../hooks/useOnlooker.js";
+import TurnCard from "../components/TurnCard.jsx";
 
 const C = {
   bg0: "#0b0d14", bg1: "#12151f", bg2: "#181c2a", bg3: "#1f2335",
@@ -216,6 +218,17 @@ function DetailEventRow({ event }) {
 }
 
 function SessionDetail({ session }) {
+  const [viewMode, setViewMode] = useState("turns"); // "turns" | "flat"
+
+  const turns = useMemo(
+    () => session ? groupIntoTurns(session.events ?? []) : [],
+    [session]
+  );
+
+  // Auto-select: if turns have structure, default to turns; otherwise flat
+  const hasTurnStructure = turns.length > 0 && (turns.length > 1 || turns[0]?.toolCalls?.length > 0);
+  const effectiveMode = hasTurnStructure ? viewMode : "flat";
+
   if (!session) return (
     <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
       color: C.textMuted, fontSize: 13 }}>
@@ -237,6 +250,9 @@ function SessionDetail({ session }) {
           <div style={{ fontSize: 11, color: C.textMuted }}>
             {formatTimeRange(session.start, session.end)}
             <span style={{ marginLeft: 10 }}>{session.events?.length ?? 0} events</span>
+            {hasTurnStructure && (
+              <span style={{ marginLeft: 10 }}>{turns.length} turns</span>
+            )}
             {session.blocks > 0 && (
               <span style={{ marginLeft: 10, color: C.red }}>⊘ {session.blocks} blocks</span>
             )}
@@ -247,18 +263,56 @@ function SessionDetail({ session }) {
       <SummaryStrip events={session.events ?? []} />
       <ScoreSparkline events={session.events ?? []} />
 
-      {/* Full event list */}
-      <div style={{ fontSize: 10, color: C.textMuted, letterSpacing: "0.06em",
-        textTransform: "uppercase", fontFamily: "monospace", marginBottom: 10 }}>
-        Event Timeline
-      </div>
-      <div style={{ borderTop: `1px solid ${C.border}` }}>
-        {(session.events ?? []).map((e, i) => (
-          <div key={i} style={{ borderBottom: `1px solid ${C.border}`, padding: "2px 0" }}>
-            <DetailEventRow event={e} />
+      {/* Timeline header with view toggle */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 10, marginBottom: 10,
+      }}>
+        <div style={{ fontSize: 10, color: C.textMuted, letterSpacing: "0.06em",
+          textTransform: "uppercase", fontFamily: "monospace" }}>
+          {effectiveMode === "turns" ? "Turn Timeline" : "Event Timeline"}
+        </div>
+        <div style={{ flex: 1 }} />
+        {hasTurnStructure && (
+          <div style={{
+            display: "inline-flex", borderRadius: 4, overflow: "hidden",
+            border: `1px solid ${C.border}`,
+          }}>
+            {[["turns", "Turns"], ["flat", "Flat"]].map(([mode, label]) => (
+              <button key={mode} onClick={() => setViewMode(mode)} style={{
+                fontSize: 9, padding: "2px 8px",
+                border: "none",
+                borderRight: mode === "turns" ? `1px solid ${C.border}` : "none",
+                background: viewMode === mode ? `${C.pink}20` : "transparent",
+                color: viewMode === mode ? C.pink : C.textMuted,
+                cursor: "pointer", fontFamily: "monospace", transition: "all 0.15s",
+              }}>
+                {label}
+              </button>
+            ))}
           </div>
-        ))}
+        )}
       </div>
+
+      {/* Turn view */}
+      {effectiveMode === "turns" ? (
+        <div>
+          {turns.map((t) => (
+            <TurnCard
+              key={`turn-${t.turn}-${t.start}`}
+              turn={t}
+              defaultExpanded={turns.length <= 5}
+            />
+          ))}
+        </div>
+      ) : (
+        <div style={{ borderTop: `1px solid ${C.border}` }}>
+          {(session.events ?? []).map((e, i) => (
+            <div key={i} style={{ borderBottom: `1px solid ${C.border}`, padding: "2px 0" }}>
+              <DetailEventRow event={e} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

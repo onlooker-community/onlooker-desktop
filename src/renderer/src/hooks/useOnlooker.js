@@ -85,6 +85,194 @@ function groupIntoSessions(events) {
     .sort((a, b) => new Date(b.start) - new Date(a.start)); // newest first
 }
 
+// ── groupIntoTurns ───────────────────────────────────────────────────────────
+// Reconstructs turn-level structure from a flat event array.
+// A "turn" = the unit of work between a user prompt and the assistant's Stop.
+//
+// Uses enriched envelope fields (turn, hook_type, tool_call_seq) when present.
+// Falls back to temporal heuristics for legacy events without turn data.
+//
+// Returns: [{ turn, start, end, events, toolCalls, cost, scores, status }]
+export function groupIntoTurns(events) {
+  if (!events?.length) return [];
+
+  const hasTurnData = events.some((e) => e.turn != null);
+
+  if (hasTurnData) return groupByTurnField(events);
+  return groupByHeuristic(events);
+}
+
+// Strategy 1: group by explicit turn number from enriched envelope
+function groupByTurnField(events) {
+  const turnMap = new Map();
+  const orphans = []; // events without a turn number (session_start, session_end, etc.)
+
+  for (const e of events) {
+    if (e.turn != null) {
+      if (!turnMap.has(e.turn)) turnMap.set(e.turn, []);
+      turnMap.get(e.turn).push(e);
+    } else {
+      orphans.push(e);
+    }
+  }
+
+  const turns = Array.from(turnMap.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([turnNum, turnEvents]) => buildTurn(turnNum, turnEvents));
+
+  // Attach orphans (session-level events) to nearest turn or as a preamble
+  if (orphans.length && turns.length) {
+    for (const o of orphans) {
+      const oTime = new Date(o.ts).getTime();
+      // Find the turn whose time range is closest
+      let best = turns[0];
+      for (const t of turns) {
+        if (new Date(t.start).getTime() <= oTime) best = t;
+      }
+      best.events.push(o);
+    }
+  } else if (orphans.length) {
+    // No turns at all — wrap orphans as a single pseudo-turn
+    turns.push(buildTurn(0, orphans));
+  }
+
+  return turns;
+}
+
+// Strategy 2: heuristic for legacy events — split on cost_tracked (Stop hook)
+// or large time gaps (>30s)
+function groupByHeuristic(events) {
+  const turns = [];
+  let current = [];
+  let turnNum = 1;
+
+  for (const e of events) {
+    current.push(e);
+
+    const isStopEvent =
+      e.type === "cost_tracked" ||
+      e.hook_type === "Stop" ||
+      (e.meta?.estimated_cost_usd != null && e.type !== "session_end");
+
+    if (isStopEvent) {
+      turns.push(buildTurn(turnNum++, current));
+      current = [];
+    }
+  }
+
+  // Remaining events form an in-progress turn
+  if (current.length) {
+    turns.push(buildTurn(turnNum, current, true));
+  }
+
+  return turns;
+}
+
+// Build a turn object from its events
+function buildTurn(turnNum, events, inProgress = false) {
+  const sorted = [...events].sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  const start = sorted[0]?.ts;
+  const end = sorted[sorted.length - 1]?.ts;
+
+  // Group tool calls: events sharing the same tool_call_seq, or Pre→Post pairs
+  const toolCalls = buildToolCalls(sorted);
+
+  // Aggregate scores from tribunal events
+  const scores = sorted
+    .filter((e) => e.plugin === "tribunal" && e.meta?.score != null)
+    .map((e) => e.meta.score);
+  const avgScore = scores.length
+    ? scores.reduce((a, b) => a + b, 0) / scores.length
+    : null;
+
+  // Cost from cost_tracked / Stop events
+  const costEvent = sorted.find(
+    (e) => e.type === "cost_tracked" || e.meta?.estimated_cost_usd != null
+  );
+  const cost = costEvent?.meta?.estimated_cost_usd ?? null;
+
+  // Token counts
+  const inputTokens = costEvent?.meta?.input_tokens ?? null;
+  const outputTokens = costEvent?.meta?.output_tokens ?? null;
+
+  // Worst status in this turn
+  const statusPriority = { block: 4, fail: 3, warn: 2, info: 1, pass: 0 };
+  const worstStatus = sorted.reduce(
+    (worst, e) =>
+      (statusPriority[e.status] ?? 0) > (statusPriority[worst] ?? 0)
+        ? e.status
+        : worst,
+    "pass"
+  );
+
+  return {
+    turn: turnNum,
+    start,
+    end,
+    events: sorted,
+    toolCalls,
+    avgScore,
+    cost,
+    inputTokens,
+    outputTokens,
+    status: worstStatus,
+    inProgress,
+  };
+}
+
+// Group events within a turn into tool call units.
+// A tool call = all events sharing the same tool_call_seq (enriched),
+// or Pre/PostToolUse pairs matched by tool_name + temporal proximity (legacy).
+function buildToolCalls(events) {
+  const hasSeq = events.some((e) => e.tool_call_seq != null);
+
+  if (hasSeq) {
+    const seqMap = new Map();
+    const nonTool = [];
+    for (const e of events) {
+      if (e.tool_call_seq != null) {
+        if (!seqMap.has(e.tool_call_seq)) seqMap.set(e.tool_call_seq, []);
+        seqMap.get(e.tool_call_seq).push(e);
+      } else {
+        nonTool.push(e);
+      }
+    }
+    return Array.from(seqMap.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([seq, evts]) => ({
+        seq,
+        toolName: evts[0]?.tool_name ?? evts[0]?.meta?.tool ?? "unknown",
+        events: evts,
+      }));
+  }
+
+  // Legacy: group consecutive Pre/PostToolUse events by tool_name
+  const toolCalls = [];
+  let currentCall = null;
+
+  for (const e of events) {
+    const ht = e.hook_type ?? e.type;
+    const isToolEvent = ht === "PreToolUse" || ht === "PostToolUse";
+
+    if (isToolEvent) {
+      const name = e.tool_name ?? e.meta?.tool ?? "unknown";
+      if (!currentCall || currentCall.toolName !== name) {
+        if (currentCall) toolCalls.push(currentCall);
+        currentCall = { seq: toolCalls.length + 1, toolName: name, events: [] };
+      }
+      currentCall.events.push(e);
+    } else {
+      if (currentCall) {
+        toolCalls.push(currentCall);
+        currentCall = null;
+      }
+    }
+  }
+  if (currentCall) toolCalls.push(currentCall);
+
+  return toolCalls;
+}
+
 // ── useOnboarding ─────────────────────────────────────────────────────────────
 // Determines which onboarding state to show on first launch.
 // Returns null once onboarding is complete (logs exist).

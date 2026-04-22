@@ -1,10 +1,12 @@
 // Live Feed view — real-time event stream from ~/.claude/onlooker/**/*.jsonl
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import {
   PLUGIN_IDS, PLUGIN_COLORS, PLUGIN_LABELS,
   STATUS_COLORS, STATUSES,
 } from "../plugins.js";
+import { groupIntoTurns } from "../hooks/useOnlooker.js";
+import TurnCard from "../components/TurnCard.jsx";
 
 const C = {
   bg0: "#0b0d14", bg1: "#12151f", bg2: "#181c2a", bg3: "#1f2335",
@@ -128,6 +130,7 @@ function EmptyState() {
 
 export default function LiveFeed({ events, active }) {
   const [paused,         setPaused]         = useState(false);
+  const [viewMode,       setViewMode]       = useState("flat"); // "flat" | "turns"
   const [pluginFilter,   setPluginFilter]    = useState(new Set(PLUGINS));
   const [statusFilter,   setStatusFilter]    = useState(new Set(STATUSES));
   const [search,         setSearch]          = useState("");
@@ -162,7 +165,13 @@ export default function LiveFeed({ events, active }) {
     return true;
   });
 
-  // Insert session boundary markers
+  // Build turn structure from filtered events (memoised)
+  const turns = useMemo(
+    () => viewMode === "turns" ? groupIntoTurns(filtered) : [],
+    [filtered, viewMode]
+  );
+
+  // Insert session boundary markers (flat view)
   const rows = [];
   let lastSession = null;
   for (const [i, e] of filtered.entries()) {
@@ -210,6 +219,22 @@ export default function LiveFeed({ events, active }) {
             {events.length} events
           </span>
           <div style={{ flex: 1 }} />
+          <div style={{
+            display: "inline-flex", borderRadius: 5, overflow: "hidden",
+            border: `1px solid ${C.border}`,
+          }}>
+            {[["flat", "Flat"], ["turns", "Turns"]].map(([mode, label]) => (
+              <button key={mode} onClick={() => setViewMode(mode)} style={{
+                fontSize: 10, padding: "3px 9px",
+                border: "none", borderRight: mode === "flat" ? `1px solid ${C.border}` : "none",
+                background: viewMode === mode ? `${C.pink}20` : "transparent",
+                color: viewMode === mode ? C.pink : C.textMuted,
+                cursor: "pointer", fontFamily: "monospace", transition: "all 0.15s",
+              }}>
+                {label}
+              </button>
+            ))}
+          </div>
           <button onClick={() => setPaused((p) => !p)} style={{
             fontSize: 10, padding: "3px 9px", borderRadius: 5,
             border: `1px solid ${paused ? C.yellow : C.border}`,
@@ -266,6 +291,24 @@ export default function LiveFeed({ events, active }) {
             alignItems: "center", justifyContent: "center", color: "#475569", gap: 8 }}>
             <div style={{ fontSize: 13, color: "#94a3b8" }}>No events match the current filters</div>
             <div style={{ fontSize: 11 }}>{displayEvents.length} events hidden by filters</div>
+          </div>
+        )
+        : viewMode === "turns"
+        ? (
+          <div style={{ flex: 1, overflowY: "auto", padding: "8px 12px" }}>
+            {turns.map((t) => (
+              <TurnCard
+                key={`turn-${t.turn}-${t.start}`}
+                turn={t}
+                defaultExpanded={t.inProgress}
+              />
+            ))}
+            {turns.length === 0 && (
+              <div style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 12 }}>
+                No turn structure detected — events may lack turn data
+              </div>
+            )}
+            <div ref={endRef} />
           </div>
         )
         : (
