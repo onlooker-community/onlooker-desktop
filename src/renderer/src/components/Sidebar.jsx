@@ -12,13 +12,14 @@ const C = {
 };
 
 const NAV = [
-  { id: "feed",    icon: "⚡", label: "Live Feed"     },
-  { id: "sessions",icon: "◎",  label: "Sessions"      },
-  { id: "metrics", icon: "▦",  label: "Metrics"       },
-  { id: "review",  icon: "☆",  label: "Weekly Review" },
+  { id: "feed",     icon: "⚡", label: "Live Feed"     },
+  { id: "sessions", icon: "◎",  label: "Sessions"      },
+  { id: "metrics",  icon: "▦",  label: "Metrics"       },
+  { id: "security", icon: "⊘",  label: "Security"      },
+  { id: "review",   icon: "☆",  label: "Weekly Review" },
 ];
 
-export default function Sidebar({ activeView, onNavigate, liveActive, blockCount, sessionCount }) {
+export default function Sidebar({ activeView, onNavigate, liveActive, blockCount, sessionCount, wardenBlocks }) {
   return (
     <div style={{
       width: 56,
@@ -54,10 +55,12 @@ export default function Sidebar({ activeView, onNavigate, liveActive, blockCount
             active={activeView === item.id}
             onNavigate={onNavigate}
             badge={
-              item.id === "feed" && blockCount > 0 ? blockCount :
+              item.id === "feed"     && blockCount   > 0 ? blockCount   :
               item.id === "sessions" && sessionCount > 0 ? sessionCount :
+              item.id === "security" && wardenBlocks > 0 ? wardenBlocks :
               null
             }
+            badgeColor={item.id === "security" ? "#fb923c" : undefined}
             dot={item.id === "feed" && liveActive}
           />
         ))}
@@ -76,7 +79,7 @@ export default function Sidebar({ activeView, onNavigate, liveActive, blockCount
   );
 }
 
-function NavItem({ item, active, onNavigate, badge, dot }) {
+function NavItem({ item, active, onNavigate, badge, dot, badgeColor }) {
   return (
     <div
       onClick={() => onNavigate(item.id)}
@@ -120,7 +123,7 @@ function NavItem({ item, active, onNavigate, badge, dot }) {
         <div style={{
           position: "absolute", top: 6, right: 8,
           minWidth: 14, height: 14, borderRadius: 7,
-          background: C.yellow,
+          background: badgeColor ?? C.yellow,
           color: "#000",
           fontSize: 8, fontWeight: 700,
           display: "flex", alignItems: "center", justifyContent: "center",

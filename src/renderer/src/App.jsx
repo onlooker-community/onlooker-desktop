@@ -1,6 +1,6 @@
 // Root component for Onlooker Desktop (self-hosted).
-// No chat pane. Four views accessed via sidebar:
-//   LiveFeed | Sessions | Metrics | WeeklyReview
+// No chat pane. Five views accessed via sidebar:
+//   LiveFeed | Sessions | Metrics | Security | WeeklyReview
 // Plus Settings modal.
 // Onboarding screen shown on first launch if no logs are found.
 
@@ -11,6 +11,7 @@ import SettingsModal from "./components/SettingsModal.jsx";
 import LiveFeed      from "./views/LiveFeed.jsx";
 import Sessions      from "./views/Sessions.jsx";
 import Metrics       from "./views/Metrics.jsx";
+import Security      from "./views/Security.jsx";
 import WeeklyReview  from "./views/WeeklyReview.jsx";
 
 import {
@@ -37,6 +38,11 @@ export default function App() {
     (e) => e.session === currentSessionId && e.status === "block"
   ).length;
 
+  // Warden blocks across all known sessions — drives the Security badge.
+  const wardenBlocks = sessions.reduce((sum, s) =>
+    sum + (s.events ?? []).filter((e) => e.plugin === "warden" && e.status === "block").length
+  , 0);
+
   // Show onboarding until the user has logs or dismisses
   const showOnboarding = onboardState !== "done" && onboardState !== "checking";
 
@@ -60,6 +66,7 @@ export default function App() {
         }}
         liveActive={active}
         blockCount={currentBlocks}
+        wardenBlocks={wardenBlocks}
         sessionCount={sessions.filter((s) => {
           const today = new Date().toDateString();
           return s.start && new Date(s.start).toDateString() === today;
@@ -80,9 +87,10 @@ export default function App() {
           ? <Onboarding state={onboardState} onDismiss={dismissOnboard} />
           : (
             <div style={{ flex: 1, minHeight: 0, paddingTop: 40 }}>
-              {view === "feed"     && <LiveFeed events={events} active={active} />}
-              {view === "sessions" && <Sessions sessions={sessions} loading={loading} />}
-              {view === "metrics"  && <Metrics  sessions={sessions} />}
+              {view === "feed"     && <LiveFeed  events={events} active={active} />}
+              {view === "sessions" && <Sessions  sessions={sessions} loading={loading} />}
+              {view === "metrics"  && <Metrics   sessions={sessions} />}
+              {view === "security" && <Security  sessions={sessions} />}
               {view === "review"   && <WeeklyReview sessions={sessions} />}
             </div>
           )
