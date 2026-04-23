@@ -19,6 +19,8 @@ const NAV = [
   { id: "sessions",  icon: "◎",  label: "Sessions"       },
   { id: "replay",    icon: "▶",  label: "Session Replay" },
   { id: "project",   icon: "◫",  label: "Project"        },
+  { id: "multiproj", icon: "◰",  label: "All Projects"   },
+  { id: "synthesis", icon: "⧖",  label: "Synthesis"      },
   { id: "metrics",   icon: "▦",  label: "Metrics"        },
   { id: "heatmap",   icon: "▧",  label: "Attention"      },
   { id: "security",  icon: "⊘",  label: "Security"       },

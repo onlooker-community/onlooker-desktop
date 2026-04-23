@@ -50,18 +50,86 @@ function createWindow() {
   mainWindow.on("closed", () => { mainWindow = null; });
 }
 
+// ── System tray intelligence ────────────────────────────────────────────────
+// Live session data in the menu bar: cost, friction, Warden alerts.
+// Updates dynamically as events flow in.
+
+const trayState = {
+  sessionCost: 0,
+  friction: null,       // null | "green" | "amber" | "red"
+  wardenRecent: false,  // block in last 5 minutes
+  lastWardenTs: 0,
+  sessionId: null,
+};
+
+function updateTrayMenu() {
+  if (!tray) return;
+
+  const frictionLabel = trayState.friction === "red" ? "High"
+    : trayState.friction === "amber" ? "Medium" : "Low";
+  const costLabel = trayState.sessionCost < 0.005
+    ? "<$0.01" : "$" + trayState.sessionCost.toFixed(2);
+
+  const template = [
+    { label: `Session Cost: ${costLabel}`, enabled: false },
+    { label: `Friction: ${frictionLabel}`, enabled: false },
+    ...(trayState.wardenRecent
+      ? [{ label: "⚠ Recent Warden Block", enabled: false }]
+      : []),
+    { type: "separator" },
+    { label: "Open Onlooker", click: () => mainWindow?.show() ?? createWindow() },
+    { label: "Weekly Review", click: () => mainWindow?.webContents.send(IPC.REVIEW_REQUEST, {}) },
+    { type: "separator" },
+    { label: "Quit", click: () => app.quit() },
+  ];
+
+  tray.setContextMenu(Menu.buildFromTemplate(template));
+
+  // Update tooltip
+  const tooltip = `Onlooker · ${costLabel} · Friction: ${frictionLabel}`;
+  tray.setToolTip(tooltip);
+}
+
+function updateTrayFromEvent(event) {
+  // Track current session
+  if (event.session && event.session !== trayState.sessionId) {
+    trayState.sessionId = event.session;
+    trayState.sessionCost = 0;
+  }
+
+  // Accumulate cost
+  if (event.meta?.estimated_cost_usd) {
+    trayState.sessionCost += event.meta.estimated_cost_usd;
+  }
+
+  // Track friction from session-level data
+  if (event.plugin === "oracle" && (event.status === "warn" || event.status === "block")) {
+    trayState.friction = "amber";
+  }
+  if (event.plugin === "warden" && event.status === "block") {
+    trayState.friction = "red";
+    trayState.wardenRecent = true;
+    trayState.lastWardenTs = Date.now();
+  }
+  if (event.plugin === "tribunal" && event.status === "fail") {
+    trayState.friction = "red";
+  }
+
+  // Clear Warden recent after 5 minutes
+  if (trayState.wardenRecent && Date.now() - trayState.lastWardenTs > 5 * 60 * 1000) {
+    trayState.wardenRecent = false;
+  }
+
+  updateTrayMenu();
+}
+
 function createTray() {
   const iconPath = path.join(__dirname, "../../assets/tray-icon.png");
   try {
     const icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
     tray = new Tray(icon);
     tray.setToolTip("Onlooker");
-    tray.setContextMenu(Menu.buildFromTemplate([
-      { label: "Open Onlooker", click: () => mainWindow?.show() ?? createWindow() },
-      { label: "Weekly Review", click: () => mainWindow?.webContents.send(IPC.REVIEW_REQUEST, {}) },
-      { type: "separator" },
-      { label: "Quit", click: () => app.quit() },
-    ]));
+    updateTrayMenu();
     tray.on("click", () => mainWindow?.show());
   } catch {
     // Tray icon asset missing during dev — non-fatal
@@ -142,8 +210,86 @@ function registerNotificationListener() {
       origSend(channel, ...args);
       if (channel === IPC.LOGS_EVENT && args[0]) {
         maybeNotify(args[0]);
+        updateTrayFromEvent(args[0]);
       }
     };
+  }
+}
+
+// ── Morning digest notification ─────────────────────────────────────────────
+// Fires a summary notification of yesterday's activity at a configurable time.
+// Fully local — aggregates JSONL data without any API calls.
+
+let digestTimer = null;
+
+function scheduleDigest() {
+  if (digestTimer) clearTimeout(digestTimer);
+
+  const digestHour = 8; // 8 AM — could be configurable
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(digestHour, 0, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+
+  const delay = next.getTime() - now.getTime();
+  digestTimer = setTimeout(async () => {
+    await sendDigestNotification();
+    scheduleDigest(); // schedule next day
+  }, delay);
+}
+
+async function sendDigestNotification() {
+  if (!Notification.isSupported()) return;
+
+  try {
+    // Import queryLogs and queryCosts dynamically to avoid circular deps
+    const { queryLogs, queryCosts } = await import("./log-watcher.js");
+    const logDir = store.get("logDir");
+
+    // Yesterday's window
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const events = await queryLogs(logDir, {
+      from: yesterday.toISOString(),
+      to: today.toISOString(),
+    });
+    const costs = await queryCosts(logDir, {
+      from: yesterday.toISOString(),
+      to: today.toISOString(),
+    });
+
+    if (events.length === 0) return; // no activity yesterday
+
+    // Aggregate
+    const sessionIds = new Set(events.map((e) => e.session).filter(Boolean));
+    const totalCost = costs.reduce((s, r) => s + r.estimated_cost_usd, 0);
+    const wardenBlocks = events.filter(
+      (e) => e.plugin === "warden" && e.status === "block"
+    ).length;
+    const tribunalScores = events
+      .filter((e) => e.plugin === "tribunal" && e.meta?.score != null)
+      .map((e) => e.meta.score);
+    const avgTribunal = tribunalScores.length > 0
+      ? (tribunalScores.reduce((a, b) => a + b, 0) / tribunalScores.length).toFixed(2)
+      : "—";
+
+    const costStr = totalCost < 0.005 ? "<$0.01" : "$" + totalCost.toFixed(2);
+
+    const title = "Onlooker: Yesterday's summary";
+    const body = [
+      `${sessionIds.size} session${sessionIds.size !== 1 ? "s" : ""} · ${costStr}`,
+      wardenBlocks > 0 ? `${wardenBlocks} Warden block${wardenBlocks !== 1 ? "s" : ""}` : null,
+      `Tribunal avg: ${avgTribunal}`,
+    ].filter(Boolean).join(" · ");
+
+    const notif = new Notification({ title, body, silent: false });
+    notif.on("click", () => mainWindow?.show());
+    notif.show();
+  } catch {
+    // Digest is best-effort — don't crash on failures
   }
 }
 
@@ -164,6 +310,7 @@ app.whenReady().then(() => {
   registerLogHandlers(ipcMain, mainWindow, store);
   registerPluginHandlers(ipcMain, store);
   registerNotificationListener();
+  scheduleDigest();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -19,6 +19,8 @@ import InstructionGraph from "./views/InstructionGraph.jsx";
 import PromptDiffing from "./views/PromptDiffing.jsx";
 import ProjectDashboard from "./views/ProjectDashboard.jsx";
 import HandoffQuality from "./views/HandoffQuality.jsx";
+import MultiProject  from "./views/MultiProject.jsx";
+import SynthesisLayer from "./views/SynthesisLayer.jsx";
 import QuickOpen     from "./components/QuickOpen.jsx";
 import SessionReplay from "./views/SessionReplay.jsx";
 import WeeklyReview  from "./views/WeeklyReview.jsx";
@@ -122,6 +124,8 @@ export default function App() {
               {view === "security" && <Security  sessions={sessions} />}
               {view === "replay"   && <SessionReplay sessions={sessions} />}
               {view === "project"  && <ProjectDashboard sessions={sessions} />}
+              {view === "multiproj" && <MultiProject sessions={sessions} />}
+              {view === "synthesis" && <SynthesisLayer sessions={sessions} />}
               {view === "heatmap"  && <Heatmap />}
               {view === "anomalies" && <Anomalies sessions={sessions} />}
               {view === "deadends" && <DeadEndMap />}

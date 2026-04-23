@@ -269,7 +269,7 @@ function collectJsonlFiles(dir) {
 }
 
 // Full historical scan for Weekly Review / LOGS_QUERY
-async function queryLogs(logDir, { from, to, plugins, limit } = {}) {
+export async function queryLogs(logDir, { from, to, plugins, limit } = {}) {
   const resolved = resolveDir(logDir);
   const events = [];
 
@@ -354,7 +354,7 @@ function readInstructionHealth(logDir) {
 //
 // Multiple records per session are normal (one per Stop hook / turn).
 // Caller sums them to get per-session totals.
-async function queryCosts(logDir, { from, to } = {}) {
+export async function queryCosts(logDir, { from, to } = {}) {
   const resolved = resolveDir(logDir);
   const records  = [];
 
