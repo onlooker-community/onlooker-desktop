@@ -23,6 +23,8 @@ const IPC = {
   LOGS_QUERY:        "logs:query",
   COSTS_QUERY:       "costs:query",
   HEALTH_QUERY:      "health:query",
+  HEATMAP_QUERY:     "heatmap:query",
+  DEAD_ENDS_QUERY:   "dead-ends:query",
   REVIEW_REQUEST:    "review:request",
   REVIEW_READY:      "review:ready",
   SETTINGS_GET:      "settings:get",
@@ -79,6 +81,14 @@ contextBridge.exposeInMainWorld("onlooker", {
 
   health: {
     query: () => ipcRenderer.invoke(IPC.HEALTH_QUERY),
+  },
+
+  heatmap: {
+    query: (opts) => ipcRenderer.invoke(IPC.HEATMAP_QUERY, opts ?? {}),
+  },
+
+  deadEnds: {
+    query: (opts) => ipcRenderer.invoke(IPC.DEAD_ENDS_QUERY, opts ?? {}),
   },
 
   review: {

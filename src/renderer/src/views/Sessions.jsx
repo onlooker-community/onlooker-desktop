@@ -110,6 +110,15 @@ function SessionListItem({ session, selected, onClick }) {
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <ScoreBar score={session.avgScore} />
+        {session.friction != null && (
+          <span style={{
+            fontSize: 9, fontFamily: "monospace", fontWeight: 600,
+            color: session.friction.score < 0.3 ? C.green
+              : session.friction.score < 0.6 ? C.yellow : C.red,
+          }}>
+            F{session.friction.score.toFixed(2)}
+          </span>
+        )}
         <span style={{ fontSize: 10, color: C.textMuted, marginLeft: "auto" }}>
           {session.events?.length ?? 0} events
         </span>
@@ -294,6 +303,15 @@ function SessionDetail({ session }) {
             )}
             {session.blocks > 0 && (
               <span style={{ marginLeft: 10, color: C.red }}>⊘ {session.blocks} blocks</span>
+            )}
+            {session.friction != null && (
+              <span style={{
+                marginLeft: 10,
+                color: session.friction.score < 0.3 ? C.green
+                  : session.friction.score < 0.6 ? C.yellow : C.red,
+              }}>
+                friction {session.friction.score.toFixed(2)}
+              </span>
             )}
           </div>
         </div>

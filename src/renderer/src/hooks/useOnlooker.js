@@ -1,7 +1,7 @@
 // Central hooks — renderer ↔ main process via window.onlooker (contextBridge).
 // useChat has been removed: self-hosted Onlooker Desktop is not a chat client.
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 const ipc = window.onlooker;
 
@@ -66,6 +66,57 @@ export function useSessions() {
   return { sessions, loading, selected, setSelected };
 }
 
+// ── computeFriction ──────────────────────────────────────────────────────────
+// Computes a normalized [0,1] friction score for a set of events.
+// Combines Oracle low-confidence, Warden/Sentinel blocks, Tribunal failures,
+// and tool retries into a weighted composite score.
+export function computeFriction(events) {
+  if (!events || events.length < 3) return null;
+
+  // Oracle: uncertain events / total oracle events
+  const oracleEvents = events.filter((e) => e.plugin === "oracle");
+  const oracleBad = oracleEvents.filter((e) => e.status === "warn" || e.status === "block").length;
+  const oracle = { count: oracleBad, total: oracleEvents.length,
+    ratio: oracleEvents.length > 0 ? oracleBad / oracleEvents.length : 0 };
+
+  // Guard: warden/sentinel blocks / total guard events
+  const guardEvents = events.filter((e) => e.plugin === "warden" || e.plugin === "sentinel");
+  const guardBad = guardEvents.filter((e) => e.status === "block").length;
+  const guard = { count: guardBad, total: guardEvents.length,
+    ratio: guardEvents.length > 0 ? guardBad / guardEvents.length : 0 };
+
+  // Tribunal: failures / total tribunal events
+  const tribunalEvents = events.filter((e) => e.plugin === "tribunal");
+  const tribunalBad = tribunalEvents.filter((e) => e.status === "fail" || e.status === "warn").length;
+  const tribunal = { count: tribunalBad, total: tribunalEvents.length,
+    ratio: tribunalEvents.length > 0 ? tribunalBad / tribunalEvents.length : 0 };
+
+  // Tool retries: failed tool outcomes / total tool outcomes
+  const toolEvents = events.filter((e) => e.type === "tool_outcome");
+  const toolBad = toolEvents.filter((e) => e.status === "fail").length;
+  const retry = { count: toolBad, total: toolEvents.length,
+    ratio: toolEvents.length > 0 ? toolBad / toolEvents.length : 0 };
+
+  // Weighted composite — redistribute weight when a signal has zero events
+  const weights = [
+    { signal: oracle,   w: 0.25 },
+    { signal: guard,    w: 0.25 },
+    { signal: tribunal, w: 0.30 },
+    { signal: retry,    w: 0.20 },
+  ];
+  const active = weights.filter(({ signal }) => signal.total > 0);
+  if (active.length === 0) return null;
+
+  const totalWeight = active.reduce((s, { w }) => s + w, 0);
+  const score = active.reduce((s, { signal, w }) =>
+    s + signal.ratio * (w / totalWeight), 0);
+
+  return {
+    score: Math.min(Math.max(score, 0), 1),
+    signals: { oracle, guard, tribunal, retry },
+  };
+}
+
 // Group a flat event array into sessions keyed by session ID
 function groupIntoSessions(events) {
   const map = new Map();
@@ -88,7 +139,8 @@ function groupIntoSessions(events) {
       const blocks   = evs.filter(e => e.status === "block").length;
       const warns    = evs.filter(e => e.status === "warn" || e.status === "fail").length;
 
-      return { id, events: sorted, start, end, avgScore, blocks, warns };
+      const friction = computeFriction(sorted);
+      return { id, events: sorted, start, end, avgScore, blocks, warns, friction };
     })
     .sort((a, b) => new Date(b.start) - new Date(a.start)); // newest first
 }
@@ -364,6 +416,77 @@ export function useSettings() {
   }, []);
 
   return [settings, update];
+}
+
+// ── useContextPressure ────────────────────────────────────────────────────────
+// Derives context window pressure from cost_tracked events in the live feed.
+// The latest turn's input_tokens is the best proxy for context utilization
+// because it includes the full conversation history sent to the API.
+export function useContextPressure(events, maxContextTokens = 200000) {
+  return useMemo(() => {
+    if (!events || events.length === 0) return null;
+
+    const lastEvent = events[events.length - 1];
+    const sessionId = lastEvent?.session;
+    if (!sessionId) return null;
+
+    const costEvents = events.filter(
+      (e) => e.session === sessionId && e.type === "cost_tracked"
+    );
+    if (costEvents.length === 0) return null;
+
+    const latest = costEvents[costEvents.length - 1];
+    const inputTokens = latest.meta?.input_tokens ?? 0;
+    const outputTokens = latest.meta?.output_tokens ?? 0;
+    const pressure = Math.min(inputTokens / maxContextTokens, 1);
+
+    return {
+      inputTokens,
+      outputTokens,
+      pressure,
+      maxTokens: maxContextTokens,
+      sessionId,
+      lastUpdate: latest.ts,
+    };
+  }, [events, maxContextTokens]);
+}
+
+// ── useFileAttention ─────────────────────────────────────────────────────────
+// Reads file access patterns from the HEATMAP_QUERY IPC channel.
+export function useFileAttention() {
+  const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    ipc.heatmap.query({}).then((data) => {
+      setFiles(data ?? []);
+      setLoading(false);
+    }).catch(() => {
+      setFiles([]);
+      setLoading(false);
+    });
+  }, []);
+
+  return { files, loading };
+}
+
+// ── useDeadEnds ──────────────────────────────────────────────────────────────
+// Reads dead end records from the DEAD_ENDS_QUERY IPC channel.
+export function useDeadEnds() {
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    ipc.deadEnds.query({}).then((data) => {
+      setRecords(data ?? []);
+      setLoading(false);
+    }).catch(() => {
+      setRecords([]);
+      setLoading(false);
+    });
+  }, []);
+
+  return { records, loading };
 }
 
 // ── usePlugin ─────────────────────────────────────────────────────────────────

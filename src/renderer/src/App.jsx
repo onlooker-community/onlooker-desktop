@@ -12,6 +12,8 @@ import LiveFeed      from "./views/LiveFeed.jsx";
 import Sessions      from "./views/Sessions.jsx";
 import Metrics       from "./views/Metrics.jsx";
 import Security      from "./views/Security.jsx";
+import Heatmap       from "./views/Heatmap.jsx";
+import DeadEndMap    from "./views/DeadEndMap.jsx";
 import WeeklyReview  from "./views/WeeklyReview.jsx";
 
 import {
@@ -20,6 +22,7 @@ import {
   useSettings,
   useOnboarding,
   useInstructionHealth,
+  useContextPressure,
 } from "./hooks/useOnlooker.js";
 
 const C = { bg0: "#0b0d14", bg1: "#12151f", border: "#1f2335" };
@@ -30,6 +33,7 @@ export default function App() {
   const [settings, updateSettings]= useSettings();
   const { state: onboardState, dismiss: dismissOnboard } = useOnboarding();
   const health                    = useInstructionHealth();
+  const pressure                  = useContextPressure(events, settings?.contextWindowSize ?? 200000);
 
   const [view,        setView]        = useState("feed");
   const [showSettings, setShowSettings] = useState(false);
@@ -70,6 +74,7 @@ export default function App() {
         blockCount={currentBlocks}
         wardenBlocks={wardenBlocks}
         health={health}
+        pressure={pressure}
         sessionCount={sessions.filter((s) => {
           const today = new Date().toDateString();
           return s.start && new Date(s.start).toDateString() === today;
@@ -94,6 +99,8 @@ export default function App() {
               {view === "sessions" && <Sessions  sessions={sessions} loading={loading} />}
               {view === "metrics"  && <Metrics   sessions={sessions} />}
               {view === "security" && <Security  sessions={sessions} />}
+              {view === "heatmap"  && <Heatmap />}
+              {view === "deadends" && <DeadEndMap />}
               {view === "review"   && <WeeklyReview sessions={sessions} />}
             </div>
           )

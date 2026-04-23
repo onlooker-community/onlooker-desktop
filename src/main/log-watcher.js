@@ -407,6 +407,157 @@ async function queryCosts(logDir, { from, to } = {}) {
   return deduped.sort((a, b) => new Date(a.ts) - new Date(b.ts));
 }
 
+// Query file attention patterns from tool events across all sessions.
+// Returns [{filePath, reads, writes, total, sessionCount}] sorted by total desc.
+async function queryFileAttention(logDir, { from, to } = {}) {
+  const resolved = resolveDir(logDir);
+  const fileMap = new Map(); // filePath → { reads, writes, sessions: Set }
+
+  const files = collectJsonlFiles(resolved).filter((f) => !isExcludedFile(f));
+
+  for (const file of files) {
+    await new Promise((resolve) => {
+      const stream = fs.createReadStream(file, { encoding: "utf8" });
+      const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+
+      rl.on("line", (line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        try {
+          const raw = JSON.parse(trimmed);
+          const inferred = inferPlugin(file, resolved);
+          const event = normalise(raw, inferred);
+          const ts = new Date(event.ts);
+          if (from && ts < new Date(from)) return;
+          if (to   && ts > new Date(to))   return;
+
+          // Extract file path from event
+          let filePath = null;
+          const toolName = event.tool_name ?? event.meta?.tool ?? null;
+
+          if (event.meta?.target) {
+            filePath = event.meta.target;
+          } else if (event.meta?.file) {
+            filePath = event.meta.file;
+          } else if (event.label && toolName) {
+            // Parse "Read: /path/to/file" style labels
+            const match = event.label.match(/^(?:Read|Write|Edit|Glob|Grep):\s+(.+)/);
+            if (match) filePath = match[1].replace(/^…/, "");
+          }
+
+          if (!filePath || filePath.length < 2) return;
+
+          const isWrite = toolName === "Write" || toolName === "Edit";
+          const isRead = toolName === "Read" || toolName === "Grep" || toolName === "Glob";
+          if (!isWrite && !isRead && event.type !== "tool_outcome") return;
+
+          if (!fileMap.has(filePath)) {
+            fileMap.set(filePath, { reads: 0, writes: 0, sessions: new Set() });
+          }
+          const entry = fileMap.get(filePath);
+          if (isWrite) entry.writes++;
+          else entry.reads++;
+          if (event.session) entry.sessions.add(event.session);
+        } catch { /* skip */ }
+      });
+
+      rl.on("close", resolve);
+    });
+  }
+
+  return Array.from(fileMap.entries())
+    .map(([filePath, { reads, writes, sessions }]) => ({
+      filePath,
+      reads,
+      writes,
+      total: reads + writes,
+      sessionCount: sessions.size,
+    }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 200);
+}
+
+// Query dead ends from Archivist dead-ends.jsonl files and archivist event logs.
+async function queryDeadEnds(logDir, { from, to } = {}) {
+  const resolved = resolveDir(logDir);
+  const records = [];
+
+  // Collect dead-ends.jsonl files + archivist log files
+  const allFiles = collectJsonlFiles(resolved);
+  const deadEndFiles = allFiles.filter((f) => /dead-ends\.jsonl$/.test(f));
+  const archivistFiles = allFiles.filter((f) =>
+    /archivist[/\\]/.test(f) && !isExcludedFile(f) && !deadEndFiles.includes(f)
+  );
+
+  const filesToScan = [...deadEndFiles, ...archivistFiles];
+
+  for (const file of filesToScan) {
+    await new Promise((resolve) => {
+      const stream = fs.createReadStream(file, { encoding: "utf8" });
+      const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+
+      rl.on("line", (line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        try {
+          const raw = JSON.parse(trimmed);
+          const ts = raw.ts ?? raw.timestamp;
+
+          if (from && ts && new Date(ts) < new Date(from)) return;
+          if (to   && ts && new Date(ts) > new Date(to))   return;
+
+          // Direct dead-end record format
+          if (raw.approach) {
+            records.push({
+              ts:        ts ?? new Date().toISOString(),
+              session_id: raw.session_id ?? raw.session ?? "",
+              cwd:        raw.cwd ?? null,
+              approach:   raw.approach,
+              context:    raw.context ?? null,
+              outcome:    raw.outcome ?? null,
+              category:   raw.category ?? null,
+              tools_involved: raw.tools_involved ?? [],
+              resolved:   raw.resolved ?? false,
+            });
+            return;
+          }
+
+          // Archivist events that contain dead_ends in payload/meta
+          const deadEnds = raw.payload?.dead_ends ?? raw.meta?.dead_ends ?? raw.dead_ends;
+          if (Array.isArray(deadEnds)) {
+            for (const de of deadEnds) {
+              records.push({
+                ts:         ts ?? new Date().toISOString(),
+                session_id: raw.session_id ?? raw.session ?? "",
+                cwd:        raw.cwd ?? raw.payload?.cwd ?? null,
+                approach:   de.approach ?? de.description ?? de,
+                context:    de.context ?? null,
+                outcome:    de.outcome ?? de.reason ?? null,
+                category:   de.category ?? null,
+                tools_involved: de.tools_involved ?? de.tools ?? [],
+                resolved:   de.resolved ?? false,
+              });
+            }
+          }
+        } catch { /* skip */ }
+      });
+
+      rl.on("close", resolve);
+    });
+  }
+
+  // Deduplicate by session_id + approach
+  const seen = new Set();
+  const deduped = records.filter((r) => {
+    const key = `${r.session_id}:${r.approach}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return deduped.sort((a, b) => new Date(b.ts) - new Date(a.ts));
+}
+
 export function registerLogHandlers(ipcMain, mainWindow, store) {
   const forward = (event) => mainWindow?.webContents.send(IPC.LOGS_EVENT, event);
 
@@ -489,6 +640,14 @@ export function registerLogHandlers(ipcMain, mainWindow, store) {
 
   ipcMain.handle(IPC.HEALTH_QUERY, () => {
     return readInstructionHealth(store.get("logDir"));
+  });
+
+  ipcMain.handle(IPC.HEATMAP_QUERY, (_e, opts) => {
+    return queryFileAttention(store.get("logDir"), opts ?? {});
+  });
+
+  ipcMain.handle(IPC.DEAD_ENDS_QUERY, (_e, opts) => {
+    return queryDeadEnds(store.get("logDir"), opts ?? {});
   });
 }
 

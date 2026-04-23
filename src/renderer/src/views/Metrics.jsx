@@ -486,6 +486,273 @@ function TokenBreakdown({ records }) {
   );
 }
 
+// ── Friction trend ──────────────────────────────────────────────────────────
+// Area chart of friction score per day.
+
+function frictionColor(s) {
+  if (s == null) return C.textMuted;
+  if (s < 0.3)  return C.green;
+  if (s < 0.6)  return C.yellow;
+  return C.red;
+}
+
+function FrictionTrend({ sessions: filtered }) {
+  const byDay = {};
+  for (const s of filtered) {
+    if (!s.start || s.friction == null) continue;
+    const day = s.start.slice(0, 10);
+    if (!byDay[day]) byDay[day] = [];
+    byDay[day].push(s.friction.score);
+  }
+  const points = Object.entries(byDay)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([day, scores]) => ({
+      day,
+      avg: scores.reduce((a, b) => a + b, 0) / scores.length,
+    }));
+
+  if (points.length < 2) return null;
+
+  const w = 480, h = 64, px = 8, py = 8;
+  const maxY = 1.0, minY = 0;
+  const xs = points.map((_, i) => px + (i / (points.length - 1)) * (w - px * 2));
+  const ys = points.map((p) => h - py - ((p.avg - minY) / (maxY - minY)) * (h - py * 2));
+  const line = xs.map((x, i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${ys[i].toFixed(1)}`).join(" ");
+  const area = `${line} L${xs[xs.length - 1]},${h} L${xs[0]},${h} Z`;
+
+  return (
+    <div style={{ background: C.bg2, borderRadius: 10, padding: "16px 18px",
+      border: `1px solid ${C.border}`, marginBottom: 16 }}>
+      <div style={{ fontSize: 10, color: C.textMuted, letterSpacing: "0.07em",
+        textTransform: "uppercase", fontFamily: "monospace", marginBottom: 10 }}>
+        Friction over time
+      </div>
+      <svg width="100%" viewBox={`0 0 ${w} ${h}`} style={{ display: "block" }}>
+        <defs>
+          <linearGradient id="fg" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor={C.yellow} stopOpacity="0.3" />
+            <stop offset="100%" stopColor={C.yellow} stopOpacity="0"   />
+          </linearGradient>
+        </defs>
+        <path d={area} fill="url(#fg)" />
+        <path d={line} fill="none" stroke={C.yellow} strokeWidth={2}
+          strokeLinecap="round" strokeLinejoin="round" />
+        {xs.map((x, i) => (
+          <circle key={i} cx={x} cy={ys[i]} r={3} fill={frictionColor(points[i].avg)} />
+        ))}
+      </svg>
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+        {[points[0], points[points.length - 1]].map((p, i) => (
+          <span key={i} style={{ fontSize: 9, color: C.textMuted, fontFamily: "monospace" }}>
+            {new Date(p.day + "T12:00:00").toLocaleDateString("en-US",
+              { month: "short", day: "numeric" })}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Signal breakdown bar ────────────────────────────────────────────────────
+// Stacked proportion bar showing which friction signals contribute most.
+
+function SignalBreakdown({ sessions: filtered }) {
+  const totals = useMemo(() => {
+    let oracle = 0, guard = 0, tribunal = 0, retry = 0;
+    for (const s of filtered) {
+      if (!s.friction) continue;
+      const sig = s.friction.signals;
+      oracle   += sig.oracle.count;
+      guard    += sig.guard.count;
+      tribunal += sig.tribunal.count;
+      retry    += sig.retry.count;
+    }
+    return { oracle, guard, tribunal, retry,
+      total: oracle + guard + tribunal + retry };
+  }, [filtered]);
+
+  if (totals.total === 0) return null;
+
+  const bars = [
+    { label: "Oracle",   value: totals.oracle,   color: "#818cf8" },
+    { label: "Guard",    value: totals.guard,     color: "#fb923c" },
+    { label: "Tribunal", value: totals.tribunal,  color: C.pink   },
+    { label: "Retries",  value: totals.retry,     color: C.cyan   },
+  ].filter((b) => b.value > 0);
+
+  return (
+    <div style={{ background: C.bg2, borderRadius: 10, padding: "16px 18px",
+      border: `1px solid ${C.border}`, marginBottom: 16 }}>
+      <div style={{ fontSize: 10, color: C.textMuted, letterSpacing: "0.07em",
+        textTransform: "uppercase", fontFamily: "monospace", marginBottom: 14 }}>
+        Friction Signal Breakdown
+      </div>
+      <div style={{ display: "flex", height: 8, borderRadius: 4,
+        overflow: "hidden", marginBottom: 12 }}>
+        {bars.map((b) => (
+          <div key={b.label} style={{ flex: b.value, background: b.color, opacity: 0.8 }} />
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+        {bars.map((b) => {
+          const pct = ((b.value / totals.total) * 100).toFixed(0);
+          return (
+            <div key={b.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 2,
+                background: b.color, opacity: 0.8 }} />
+              <span style={{ fontSize: 10, color: C.textSecondary }}>{b.label}</span>
+              <span style={{ fontSize: 10, color: C.textMuted, fontFamily: "monospace" }}>
+                {b.value} ({pct}%)
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Plugin Performance components ───────────────────────────────────────────
+
+function computePluginCostShare(events, totalCost) {
+  const counts = {};
+  let total = 0;
+  for (const e of events) {
+    const p = e.plugin ?? "unknown";
+    counts[p] = (counts[p] ?? 0) + 1;
+    total++;
+  }
+  if (total === 0) return [];
+  return Object.entries(counts)
+    .map(([plugin, eventCount]) => ({
+      plugin,
+      eventCount,
+      costShare: totalCost * (eventCount / total),
+      percentage: (eventCount / total) * 100,
+    }))
+    .sort((a, b) => b.costShare - a.costShare);
+}
+
+function computePluginROI(events, totalCost) {
+  const counts = {};
+  let totalEvents = 0;
+  for (const e of events) {
+    const p = e.plugin ?? "unknown";
+    if (!counts[p]) counts[p] = { total: 0, catches: 0, warn: 0, fail: 0, block: 0 };
+    counts[p].total++;
+    totalEvents++;
+    if (e.status === "warn")  { counts[p].catches++; counts[p].warn++; }
+    if (e.status === "fail")  { counts[p].catches++; counts[p].fail++; }
+    if (e.status === "block") { counts[p].catches++; counts[p].block++; }
+  }
+  return Object.entries(counts)
+    .filter(([, v]) => v.catches > 0)
+    .map(([plugin, v]) => {
+      const pluginCost = totalEvents > 0 ? totalCost * (v.total / totalEvents) : 0;
+      return {
+        plugin,
+        catches: v.catches,
+        costPerCatch: v.catches > 0 ? pluginCost / v.catches : 0,
+        catchTypes: { warn: v.warn, fail: v.fail, block: v.block },
+      };
+    })
+    .sort((a, b) => b.catches - a.catches);
+}
+
+function PluginCostDonut({ shares, totalCost }) {
+  if (shares.length === 0) return null;
+  const r = 50, cx = 60, cy = 60, sw = 16;
+  const circumference = 2 * Math.PI * r;
+  let accumulated = 0;
+
+  return (
+    <div style={{ background: C.bg2, borderRadius: 10, padding: "16px 18px",
+      border: `1px solid ${C.border}`, marginBottom: 16 }}>
+      <div style={{ fontSize: 10, color: C.textMuted, letterSpacing: "0.07em",
+        textTransform: "uppercase", fontFamily: "monospace", marginBottom: 12 }}>
+        Cost Share by Plugin
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+        <svg viewBox="0 0 120 120" width={120} height={120}>
+          {shares.map((s) => {
+            const segLen = (s.percentage / 100) * circumference;
+            const offset = -accumulated;
+            accumulated += segLen;
+            return (
+              <circle key={s.plugin} cx={cx} cy={cy} r={r}
+                fill="none" stroke={pluginColor(s.plugin)} strokeWidth={sw}
+                strokeDasharray={`${segLen} ${circumference - segLen}`}
+                strokeDashoffset={offset}
+                transform={`rotate(-90 ${cx} ${cy})`}
+                style={{ transition: "all 0.4s" }}
+              />
+            );
+          })}
+          <text x={cx} y={cy - 4} textAnchor="middle" fill={C.textPrimary}
+            fontSize="14" fontWeight="700" fontFamily="'JetBrains Mono', monospace">
+            {fmtCost(totalCost)}
+          </text>
+          <text x={cx} y={cy + 10} textAnchor="middle" fill={C.textMuted}
+            fontSize="8" fontFamily="monospace">
+            estimated
+          </text>
+        </svg>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+          {shares.slice(0, 8).map((s) => (
+            <div key={s.plugin} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 2,
+                background: pluginColor(s.plugin), flexShrink: 0 }} />
+              <span style={{ fontSize: 10, color: C.textSecondary, flex: 1 }}>
+                {s.plugin}
+              </span>
+              <span style={{ fontSize: 10, color: C.textMuted, fontFamily: "monospace" }}>
+                {fmtCost(s.costShare)} ({s.percentage.toFixed(0)}%)
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PluginROICards({ roi }) {
+  if (roi.length === 0) return null;
+
+  return (
+    <div style={{ background: C.bg2, borderRadius: 10, padding: "16px 18px",
+      border: `1px solid ${C.border}`, marginBottom: 16 }}>
+      <div style={{ fontSize: 10, color: C.textMuted, letterSpacing: "0.07em",
+        textTransform: "uppercase", fontFamily: "monospace", marginBottom: 12 }}>
+        Quality ROI
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {roi.slice(0, 6).map((r) => (
+          <div key={r.plugin} style={{
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "8px 10px", borderRadius: 6, background: C.bg3,
+          }}>
+            <div style={{ width: 8, height: 8, borderRadius: 2,
+              background: pluginColor(r.plugin), flexShrink: 0 }} />
+            <span style={{ fontSize: 11, color: C.textPrimary, flex: 1 }}>
+              <strong>{r.plugin}</strong> caught {r.catches} issue{r.catches !== 1 ? "s" : ""}
+              {r.costPerCatch > 0 ? ` at ~${fmtCost(r.costPerCatch)} per catch` : ""}
+            </span>
+            <div style={{ display: "flex", gap: 6, fontSize: 9, color: C.textMuted }}>
+              {r.catchTypes.block > 0 && <span style={{ color: C.red }}>
+                {r.catchTypes.block} block</span>}
+              {r.catchTypes.fail > 0 && <span style={{ color: C.red }}>
+                {r.catchTypes.fail} fail</span>}
+              {r.catchTypes.warn > 0 && <span style={{ color: C.yellow }}>
+                {r.catchTypes.warn} warn</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Main view ─────────────────────────────────────────────────────────────────
 
 export default function Metrics({ sessions }) {
@@ -590,6 +857,66 @@ export default function Metrics({ sessions }) {
           <TopSessionsByCost sessions={costSessions} />
         </>
       )}
+
+      {/* ── Friction section ──────────────────────────────────────────────── */}
+      {filtered.some((s) => s.friction != null) && (() => {
+        const frictionSessions = filtered.filter((s) => s.friction != null);
+        const avgFriction = frictionSessions.length > 0
+          ? frictionSessions.reduce((s, f) => s + f.friction.score, 0) / frictionSessions.length
+          : null;
+        const maxFriction = frictionSessions.length > 0
+          ? Math.max(...frictionSessions.map((s) => s.friction.score))
+          : null;
+        const highFriction = frictionSessions.filter((s) => s.friction.score > 0.5).length;
+
+        return (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <div style={{ fontSize: 10, color: C.textMuted, letterSpacing: "0.07em",
+                textTransform: "uppercase", fontFamily: "monospace", whiteSpace: "nowrap" }}>
+                Friction
+              </div>
+              <div style={{ flex: 1, height: 1, background: C.border }} />
+            </div>
+
+            <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+              <StatCard label="Avg Friction" value={avgFriction?.toFixed(2) ?? "—"}
+                color={frictionColor(avgFriction)} />
+              <StatCard label="Peak Friction" value={maxFriction?.toFixed(2) ?? "—"}
+                color={frictionColor(maxFriction)} />
+              <StatCard label="Sessions > 0.5" value={highFriction}
+                color={highFriction > 0 ? C.red : C.green} />
+            </div>
+
+            <FrictionTrend sessions={filtered} />
+            <SignalBreakdown sessions={filtered} />
+          </>
+        );
+      })()}
+
+      {/* ── Plugin Performance section ────────────────────────────────────── */}
+      {allEvents.length > 0 && totalCost > 0 && (() => {
+        const shares = computePluginCostShare(allEvents, totalCost);
+        const roi = computePluginROI(allEvents, totalCost);
+
+        return (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <div style={{ fontSize: 10, color: C.textMuted, letterSpacing: "0.07em",
+                textTransform: "uppercase", fontFamily: "monospace", whiteSpace: "nowrap" }}>
+                Plugin Performance
+              </div>
+              <div style={{ flex: 1, height: 1, background: C.border }} />
+              <span style={{ fontSize: 9, color: C.textMuted, fontFamily: "monospace" }}>
+                estimated
+              </span>
+            </div>
+
+            <PluginCostDonut shares={shares} totalCost={totalCost} />
+            <PluginROICards roi={roi} />
+          </>
+        );
+      })()}
 
       {/* ── Quality section ───────────────────────────────────────────────── */}
       {allEvents.length > 0 && (

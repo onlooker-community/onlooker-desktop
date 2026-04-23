@@ -2,6 +2,7 @@
 // Icons are text/emoji glyphs so there's no icon dependency to manage.
 
 import { useState } from "react";
+import PressureGauge from "./PressureGauge.jsx";
 
 const C = {
   bg:          "#0b0d14",
@@ -17,11 +18,13 @@ const NAV = [
   { id: "feed",     icon: "⚡", label: "Live Feed"     },
   { id: "sessions", icon: "◎",  label: "Sessions"      },
   { id: "metrics",  icon: "▦",  label: "Metrics"       },
+  { id: "heatmap",  icon: "▧",  label: "Attention"     },
   { id: "security", icon: "⊘",  label: "Security"      },
+  { id: "deadends", icon: "⊗",  label: "Dead Ends"     },
   { id: "review",   icon: "☆",  label: "Weekly Review" },
 ];
 
-export default function Sidebar({ activeView, onNavigate, liveActive, blockCount, sessionCount, wardenBlocks, health }) {
+export default function Sidebar({ activeView, onNavigate, liveActive, blockCount, sessionCount, wardenBlocks, health, pressure }) {
   return (
     <div style={{
       width: 56,
@@ -70,6 +73,9 @@ export default function Sidebar({ activeView, onNavigate, liveActive, blockCount
 
       {/* Spacer */}
       <div style={{ flex: 1 }} />
+
+      {/* Context pressure gauge */}
+      <PressureGauge pressure={pressure} active={liveActive} />
 
       {/* Instruction health indicator (Cartographer) */}
       {health != null && (

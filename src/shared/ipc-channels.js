@@ -25,6 +25,12 @@ export const IPC = {
   // Instruction health (reads Cartographer state.json + latest audit JSON)
   HEALTH_QUERY:         "health:query",
 
+  // File attention heatmap (reads tool events to extract file access patterns)
+  HEATMAP_QUERY:        "heatmap:query",
+
+  // Dead ends (reads Archivist dead-ends.jsonl files)
+  DEAD_ENDS_QUERY:      "dead-ends:query",
+
   // Weekly review
   REVIEW_REQUEST:       "review:request",
   REVIEW_READY:         "review:ready",
@@ -78,4 +84,5 @@ export const DEFAULT_SETTINGS = {
   theme:             "dark",
   panelWidth:        320,
   weeklyReviewDay:   "sunday",
+  contextWindowSize: 200000,
 };
