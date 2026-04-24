@@ -12,24 +12,24 @@ const ACCOUNT = "anthropic-api-key";
 
 // Called by claude-client.js — stays in main process only
 export async function getApiKey() {
-  return keytar.getPassword(SERVICE, ACCOUNT);
+	return keytar.getPassword(SERVICE, ACCOUNT);
 }
 
 export function registerKeyHandlers(ipcMain) {
-  ipcMain.handle(IPC.KEY_GET, async () => {
-    const key = await keytar.getPassword(SERVICE, ACCOUNT);
-    if (!key) return null;
-    // Return masked form so the renderer can show it without exposing the key
-    return key.slice(0, 14) + "…" + key.slice(-4);
-  });
+	ipcMain.handle(IPC.KEY_GET, async () => {
+		const key = await keytar.getPassword(SERVICE, ACCOUNT);
+		if (!key) return null;
+		// Return masked form so the renderer can show it without exposing the key
+		return `${key.slice(0, 14)}…${key.slice(-4)}`;
+	});
 
-  ipcMain.handle(IPC.KEY_SET, async (_e, { key }) => {
-    await keytar.setPassword(SERVICE, ACCOUNT, key);
-    return { ok: true };
-  });
+	ipcMain.handle(IPC.KEY_SET, async (_e, { key }) => {
+		await keytar.setPassword(SERVICE, ACCOUNT, key);
+		return { ok: true };
+	});
 
-  ipcMain.handle(IPC.KEY_DELETE, async () => {
-    await keytar.deletePassword(SERVICE, ACCOUNT);
-    return { ok: true };
-  });
+	ipcMain.handle(IPC.KEY_DELETE, async () => {
+		await keytar.deletePassword(SERVICE, ACCOUNT);
+		return { ok: true };
+	});
 }

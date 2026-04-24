@@ -1,64 +1,87 @@
 {
-  "name": "onlooker-desktop",
-  "version": "0.1.0",
-  "type": "module",
-  "description": "Onlooker — local-first AI agent observability client",
-  "main": "src/main/index.js",
-  "homepage": "https://onlooker.dev",
-  "author": {
-    "name": "Onlooker",
-    "email": "hello@onlooker.dev"
-  },
-  "scripts": {
-    "dev": "concurrently \"npm run dev:renderer\" \"wait-on http://localhost:5173 && npm run dev:electron\"",
-    "dev:renderer": "vite",
-    "dev:electron": "cross-env NODE_ENV=development electron .",
-    "build": "npm run build:renderer && npm run build:electron",
-    "build:renderer": "vite build",
-    "build:electron": "electron-builder",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
-    "electron-store": "^10.0.0",
-    "keytar": "^7.9.0",
-    "chokidar": "^3.6.0"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
-    "concurrently": "^9.1.2",
-    "cross-env": "^7.0.3",
-    "electron": "^34.0.0",
-    "electron-builder": "^25.1.8",
-    "vite": "^6.0.11",
-    "wait-on": "^8.0.1",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
-  },
-  "build": {
-    "appId": "dev.onlooker.desktop",
-    "productName": "Onlooker",
-    "mac": {
-      "category": "public.app-category.developer-tools",
-      "icon": "assets/icon.icns",
-      "target": ["dmg", "zip"]
-    },
-    "win": {
-      "icon": "assets/icon.ico",
-      "target": ["nsis"]
-    },
-    "linux": {
-      "icon": "assets/icon.png",
-      "target": ["AppImage", "deb"]
-    },
-    "files": [
-      "dist/**/*",
-      "src/main/**/*",
-      "src/shared/**/*",
-      "assets/**/*"
-    ],
-    "directories": {
-      "output": "dist-electron"
-    }
-  }
+	"name": "onlooker-desktop",
+	"version": "0.1.0",
+	"type": "module",
+	"description": "Onlooker — local-first AI agent observability client",
+	"main": "src/main/index.js",
+	"homepage": "https://onlooker.dev",
+	"author": {
+		"name": "Onlooker",
+		"email": "hello@onlooker.dev"
+	},
+	"scripts": {
+		"dev": "concurrently \"npm run dev:renderer\" \"wait-on http://localhost:5173 && npm run dev:electron\"",
+		"dev:renderer": "vite",
+		"dev:electron": "cross-env NODE_ENV=development electron .",
+		"build": "npm run build:renderer && npm run build:electron",
+		"build:renderer": "vite build",
+		"build:electron": "electron-builder",
+		"lint": "biome lint .",
+		"lint:fix": "biome lint . --write",
+		"format": "biome format --write .",
+		"check": "biome check .",
+		"check:fix": "biome check --write .",
+		"ci": "biome ci .",
+		"preview": "vite preview"
+	},
+	"dependencies": {
+		"@anthropic-ai/sdk": "^0.39.0",
+		"electron-store": "^10.0.0",
+		"keytar": "^7.9.0",
+		"chokidar": "^3.6.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.4.13",
+		"@types/node": "^25.6.0",
+		"@types/node-forge": "^1.3.14",
+		"@types/react": "^19.2.14",
+		"@types/react-dom": "^19.2.3",
+		"@types/uuid": "^11.0.0",
+		"@vitejs/plugin-react": "^6.0.1",
+		"concurrently": "^9.1.2",
+		"cross-env": "^7.0.3",
+		"electron": "^34.0.0",
+		"electron-builder": "^25.1.8",
+		"electron-vite": "^5.0.0",
+		"react": "^18.3.1",
+		"react-dom": "^18.3.1",
+		"typescript": "^6.0.3",
+		"vite": "^6.0.11",
+		"wait-on": "^8.0.1"
+	},
+	"build": {
+		"appId": "dev.onlooker.desktop",
+		"productName": "Onlooker Desktop",
+		"directories": {
+			"output": "dist"
+		},
+		"files": [
+			"out/**/*",
+			"package.json"
+		],
+		"asarUnpack": [
+			"**/node_modules/better-sqlite3/**"
+		],
+		"mac": {
+			"category": "public.app-category.developer-tools",
+			"hardenedRuntime": true,
+			"icon": "resources/icons/macos/AppIcon.icns"
+		},
+		"win": {
+			"icon": "resources/app-icon.ico",
+			"target": [
+				{
+					"target": "nsis"
+				}
+			]
+		},
+		"linux": {
+			"icon": "resources/icon.png",
+			"target": [
+				"AppImage",
+				"deb"
+			],
+			"category": "Development"
+		}
+	}
 }
