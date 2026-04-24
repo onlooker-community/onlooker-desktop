@@ -2,6 +2,9 @@
 // Shown instead of the main UI when no JSONL logs are found.
 // Four states: fresh | no_plugins | no_logs | (done = not shown)
 
+// biome-ignore lint/correctness/noUnusedImports: required for @vitejs/plugin-react HMR (file has no other imports)
+import React from "react";
+
 const C = {
 	bg0: "#0b0d14",
 	bg1: "#12151f",
